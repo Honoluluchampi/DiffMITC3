@@ -2,11 +2,11 @@ from setuptools import setup, find_packages
 from pybind11.setup_helpers import Pybind11Extension
 
 ext_modules = [
-    Pybind11Extension("DiffMITC3", ["src/pybind.cpp"])
+    Pybind11Extension("DiffMITC3Impl", ["src/pybind.cpp"])
 ]
 
 setup(
-    name="DiffMITC3Layer",
+    name="DiffMITC3",
     version='0.0.1',
     packages=find_packages(),
     ext_modules=ext_modules,
