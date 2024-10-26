@@ -9,7 +9,7 @@ def create_graph_laplacian(plate, num_vtx) :
     laplacian_data    = plate.get_laplacian_data()
     return scipy.sparse.csr_matrix((laplacian_data, laplacian_indices, laplacian_indptr), shape=[num_vtx, num_vtx])
 
-class SolveLinearSystem(torch.autograd.Function) :
+class SolveMITC3LinearSystem(torch.autograd.Function) :
     @staticmethod
     # vtx_buffer = [x0, y0, x1, y1, ... ]
     # only one eigen value for optimization
@@ -52,7 +52,7 @@ class SolveLinearSystem(torch.autograd.Function) :
         return dLdx, None, None
 
 def calc_tone_loss(vtx_buffer, plate, target_freqs, freqs_weights) :
-    eig_val, eig_vec = SolveLinearSystem.apply(vtx_buffer, plate, target_freqs.shape[0])
+    eig_val, eig_vec = SolveMITC3LinearSystem.apply(vtx_buffer, plate, target_freqs.shape[0])
     freqs = torch.sqrt(eig_val) / (2. * np.pi)
     loss_tone = torch.dot(freqs_weights, torch.pow(freqs - target_freqs, 2) / target_freqs)
     return loss_tone, freqs

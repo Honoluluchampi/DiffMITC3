@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <iostream>
 
-#include <Eigen/Dense>
+#include "../submodules/eigen/Eigen/Dense"
 
 using Real = double;
 
