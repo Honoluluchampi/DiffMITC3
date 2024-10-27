@@ -1,16 +1,10 @@
 from setuptools import setup, find_packages
-from pybind11.setup_helpers import Pybind11Extension
-
-ext_modules = [
-    Pybind11Extension("DiffMITC3Impl", ["src/pybind.cpp"])
-]
 
 setup(
     name="DiffMITC3",
     version='0.0.1',
     packages=find_packages(),
-    ext_modules=ext_modules,
-    install_requires=[],
+    install_requires=['DiffMITC3Impl @ git+https://github.com/Honoluluchampi/DiffMITC3Impl'],
     author="Riku TOYOTA",
     description="An implementation of the differentiable MITC3 element layer for Pytorch."
 )
