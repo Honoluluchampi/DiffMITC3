@@ -2,6 +2,7 @@ import numpy as np
 import scipy
 import torch
 from del_msh import PolyLoop
+import DiffMITC3Impl
 
 
 def create_graph_laplacian(plate, num_vtx) :
@@ -10,6 +11,23 @@ def create_graph_laplacian(plate, num_vtx) :
     laplacian_data    = plate.get_laplacian_data()
     return scipy.sparse.csr_matrix((laplacian_data, laplacian_indices, laplacian_indptr), shape=[num_vtx, num_vtx])
 
+
+class TessellateEdgeVtx(torch.autograd.Function) :
+    @staticmethod
+    def forward(ctx, edge_vtx_buffer, resolution) :
+        edge_vtx_buffer = edge_vtx_buffer.reshape((-1, 2)).detach().numpy().astype(np.float32)
+        ctx.num_edge_vtx = edge_vtx_buffer.shape[0]
+        idx_buffer, vtx_buffer, _ = PolyLoop.tesselation2d(edge_vtx_buffer, resolution_edge=-1, resolution_face=resolution)
+        idx_buffer = torch.from_numpy(idx_buffer.astype(np.int32))
+        vtx_buffer = torch.from_numpy(vtx_buffer.astype(np.float64))
+        vtx_buffer.requires_grad = True
+        return idx_buffer, vtx_buffer
+
+    @staticmethod
+    def backward(ctx, dLidx, dLdvtx):
+        dLdedge = torch.zeros([ctx.num_edge_vtx, 2], dtype=torch.float64, requires_grad=True)
+        dLdedge = dLdedge.copy_(dLdvtx[0 : ctx.num_edge_vtx])
+        return dLdedge, None
 
 class SolveMITC3LinearSystem(torch.autograd.Function) :
     @staticmethod
@@ -56,12 +74,9 @@ class SolveMITC3LinearSystem(torch.autograd.Function) :
 # TODO : select device
 class Plate :
     def __init__(self, resolution, thickness_, lambda_, myu_, rho_, edge_vtx_buffer):
-        edge_vtx_buffer = edge_vtx_buffer.reshape((-1, 2))
         self.num_edge_vtx = edge_vtx_buffer.shape[0]
-        self.idx_buffer, vtx_buffer, _ = PolyLoop.tesselation2d(edge_vtx_buffer, resolution_edge=-1, resolution_face=resolution)
-        self.num_vtx = vtx_buffer.shape[0]
-        self.vtx_buffer = torch.from_numpy(vtx_buffer.astype(np.float64))
-        self.vtx_buffer.requires_grad = True
+        self.idx_buffer, self.vtx_buffer = TessellateEdgeVtx.apply(edge_vtx_buffer, resolution)
+        self.num_vtx = self.vtx_buffer.shape[0]
         self.previous_vtx = self.vtx_buffer.detach().clone()
         self.plate = DiffMITC3Impl.MITC3Plate(thickness_, lambda_, myu_, rho_, self.num_vtx, self.num_edge_vtx, self.idx_buffer.reshape(-1))
         self.laplacian = create_graph_laplacian(self.plate, self.num_vtx)
