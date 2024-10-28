@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import torch
+from del_msh import PolyLoop
 
 
 def create_graph_laplacian(plate, num_vtx) :
@@ -8,6 +9,7 @@ def create_graph_laplacian(plate, num_vtx) :
     laplacian_indices = plate.get_laplacian_indices()
     laplacian_data    = plate.get_laplacian_data()
     return scipy.sparse.csr_matrix((laplacian_data, laplacian_indices, laplacian_indptr), shape=[num_vtx, num_vtx])
+
 
 class SolveMITC3LinearSystem(torch.autograd.Function) :
     @staticmethod
@@ -41,7 +43,6 @@ class SolveMITC3LinearSystem(torch.autograd.Function) :
         # eigen values and eigen vectors
         return torch.from_numpy(evals), torch.from_numpy(evecs)
 
-    # TODO : backward
     @staticmethod
     def backward(ctx, dLdeval, dLdevec):
         dLdx = np.zeros((ctx.num_vtx, 2))
@@ -51,8 +52,39 @@ class SolveMITC3LinearSystem(torch.autograd.Function) :
             dLdx = np.add(dLdx, dLdeval[i] * devaldx.reshape([ctx.num_vtx, 2]))
         return dLdx, None, None
 
-def calc_tone_loss(vtx_buffer, plate, target_freqs, freqs_weights) :
-    eig_val, eig_vec = SolveMITC3LinearSystem.apply(vtx_buffer, plate, target_freqs.shape[0])
-    freqs = torch.sqrt(eig_val) / (2. * np.pi)
-    loss_tone = torch.dot(freqs_weights, torch.pow(freqs - target_freqs, 2) / target_freqs)
-    return loss_tone, freqs
+
+# TODO : select device
+class Plate :
+    def __init__(self, resolution, thickness_, lambda_, myu_, rho_, edge_vtx_buffer):
+        edge_vtx_buffer = edge_vtx_buffer.reshape((-1, 2))
+        self.num_edge_vtx = edge_vtx_buffer.shape[0]
+        self.idx_buffer, vtx_buffer, _ = PolyLoop.tesselation2d(edge_vtx_buffer, resolution_edge=-1, resolution_face=resolution)
+        self.num_vtx = vtx_buffer.shape[0]
+        self.vtx_buffer = torch.from_numpy(vtx_buffer.astype(np.float64))
+        self.vtx_buffer.requires_grad = True
+        self.previous_vtx = self.vtx_buffer.detach().clone()
+        self.plate = DiffMITC3Impl.MITC3Plate(thickness_, lambda_, myu_, rho_, self.num_vtx, self.num_edge_vtx, self.idx_buffer.reshape(-1))
+        self.laplacian = create_graph_laplacian(self.plate, self.num_vtx)
+        self.bilaplacian = self.laplacian * self.laplacian
+        self.smoothing_diag = scipy.sparse.dia_matrix((np.ones(self.num_vtx), np.array([0])), shape=[self.num_vtx, self.num_vtx])
+        self.scale = torch.tensor(1., requires_grad=True)
+
+    def get_scaled_vtx(self) :
+        return self.scale * self.vtx_buffer
+
+    def calc_tone_loss(self, target_freqs, freqs_weights) :
+        vtx_buffer = self.get_scaled_vtx().cpu()
+        eig_val, eig_vec = SolveMITC3LinearSystem.apply(vtx_buffer, self.plate, target_freqs.shape[0])
+        freqs = torch.sqrt(eig_val) / (2. * np.pi)
+        loss_tone = torch.dot(freqs_weights, torch.pow(freqs - target_freqs, 2) / target_freqs)
+        return loss_tone, freqs
+
+    def laplacian_smoothing(self, laplacian_weight) :
+        with torch.no_grad() :
+            smoothed_dvtx = scipy.sparse.linalg.spsolve(
+                laplacian_weight * self.bilaplacian + self.smoothing_diag,
+                (self.vtx_buffer - self.previous_vtx).detach().cpu().numpy()
+            )
+            self.vtx_buffer.copy_(self.previous_vtx + torch.from_numpy(smoothed_dvtx))
+            self.vtx_buffer.requires_grad = True
+            self.previous_vtx = self.vtx_buffer.detach().clone()
