@@ -55,17 +55,18 @@ class SolveMITC3LinearSystem(torch.autograd.Function) :
 
 # TODO : select device
 class Plate :
-    def __init__(self, thickness_, lambda_, myu_, rho_, num_edge_vtx, idx_buffer, vtx_buffer):
+    def __init__(self, thickness_, lambda_, myu_, rho_, num_edge_vtx, idx_buffer, vtx_buffer, require_smoothing=False):
         self.num_edge_vtx = num_edge_vtx
         self.idx_buffer = idx_buffer
         self.vtx_buffer = vtx_buffer
         self.num_vtx = self.vtx_buffer.shape[0]
-        self.previous_vtx = self.vtx_buffer.detach().clone()
         self.plate = DiffMITC3Impl.MITC3Plate(thickness_, lambda_, myu_, rho_, self.num_vtx, self.num_edge_vtx, self.idx_buffer.reshape(-1))
-        self.laplacian = create_graph_laplacian(self.plate, self.num_vtx)
-        self.bilaplacian = self.laplacian * self.laplacian
-        self.smoothing_diag = scipy.sparse.dia_matrix((np.ones(self.num_vtx), np.array([0])), shape=[self.num_vtx, self.num_vtx])
         self.scale = torch.tensor(1., requires_grad=True)
+        if require_smoothing :
+            self.previous_vtx = self.vtx_buffer.detach().clone()
+            self.laplacian = create_graph_laplacian(self.plate, self.num_vtx)
+            self.bilaplacian = self.laplacian * self.laplacian
+            self.smoothing_diag = scipy.sparse.dia_matrix((np.ones(self.num_vtx), np.array([0])), shape=[self.num_vtx, self.num_vtx])
 
     def get_scaled_vtx(self) :
         return self.scale * self.vtx_buffer
