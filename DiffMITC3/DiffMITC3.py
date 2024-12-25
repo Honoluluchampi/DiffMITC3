@@ -84,5 +84,6 @@ class Plate :
                 (self.vtx_buffer - self.previous_vtx).detach().cpu().numpy()
             )
             self.vtx_buffer.copy_(self.previous_vtx + torch.from_numpy(smoothed_dvtx))
-            self.vtx_buffer.requires_grad = True
+            if self.vtx_buffer.is_leaf :
+                self.vtx_buffer.requires_grad = True
             self.previous_vtx = self.vtx_buffer.detach().clone()
